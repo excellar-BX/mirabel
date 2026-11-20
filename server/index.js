@@ -1,59 +1,77 @@
-require("dotenv").config();
-const express = require("express");
-const mongoose = require("mongoose");
-const cors = require("cors");
-const path = require("path");
-const morgan = require("morgan");
+// Standalone server: serves the API and the built React app from one process.
+// Use this for Render, Railway, Fly.io, a VPS, Docker, etc. (Vercel uses api/index.js.)
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import express from "express";
+import helmet from "helmet";
+import config from "./config.js";
+import api from "./app.js";
+import { connectDB, disconnectDB } from "./db.js";
 
-const peopleRoutes = require("./routes/people");
-const logsRoutes = require("./routes/logs");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.resolve(__dirname, "../dist");
+const indexHtml = path.join(distDir, "index.html");
 
-const app = express();
-const PORT = process.env.PORT || 5000;
+const server = express();
+server.disable("x-powered-by");
+server.set("trust proxy", 1);
+server.use(api);
 
-// Middleware
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
-app.use(express.json());
-app.use(morgan("dev"));
-
-
-// Routes
-app.use("/api/people", peopleRoutes);
-app.use("/api/logs", logsRoutes);
-
-// Health check
-app.get("/", (req, res) => {
-  res.json({ status: "School ID System API running" });
-});
-
-// Global error handler (Express 5 auto-forwards async throws here)
-app.use((err, req, res, next) => {
-  console.error(err.message);
-  res.status(err.status || 500).json({ message: err.message || "Internal server error" });
-});
-
-// Connect DB (cached for serverless)
-let isConnected = false;
-
-const connectDB = async () => {
-  if (isConnected) return;
-  
-  try {
-    await mongoose.connect(process.env.MONGO_URI);
-    isConnected = true;
-    console.log("✅ MongoDB connected");
-  } catch (err) {
-    console.error("❌ MongoDB connection error:", err.message);
-    throw err;
-  }
-};
-
-// Connect DB + start server (for local development)
-if (require.main === module) {
-  connectDB().then(() => {
-    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+if (fs.existsSync(indexHtml)) {
+  server.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          "default-src": ["'self'"],
+          "img-src": ["'self'", "data:", "blob:"],
+          "media-src": ["'self'", "blob:"],
+          "style-src": ["'self'", "'unsafe-inline'"],
+          "script-src": ["'self'"],
+          "worker-src": ["'self'", "blob:"],
+          "connect-src": ["'self'"],
+          "object-src": ["'none'"],
+          "frame-ancestors": ["'none'"],
+          "base-uri": ["'self'"],
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+    })
+  );
+  server.use(
+    "/assets",
+    express.static(path.join(distDir, "assets"), { immutable: true, maxAge: "1y" })
+  );
+  server.use(express.static(distDir, { index: false, maxAge: "1h" }));
+  // SPA fallback: let React Router handle client-side routes.
+  server.use((req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    res.set("Cache-Control", "no-cache");
+    res.sendFile(indexHtml);
   });
+} else if (config.isProd) {
+  console.warn("dist/ not found. Run `npm run build` to serve the frontend.");
 }
 
-// Export for Vercel serverless
-module.exports = { app, connectDB };
+async function start() {
+  await connectDB();
+  const httpServer = server.listen(config.port, () => {
+    console.log(`Server running on http://localhost:${config.port}`);
+  });
+
+  const shutdown = (signal) => {
+    console.log(`${signal} received, shutting down...`);
+    httpServer.close(async () => {
+      await disconnectDB().catch(() => {});
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+start().catch((err) => {
+  console.error("Failed to start server:", err.message);
+  process.exit(1);
+});

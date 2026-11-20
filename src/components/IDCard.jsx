@@ -1,139 +1,102 @@
 import { useEffect, useRef } from "react";
 import QRCode from "qrcode";
-import gsap from "gsap";
-import { Building2, User, MapPin, Hash } from "lucide-react";
+import { User } from "lucide-react";
+import { photoUrl } from "../lib/axios";
+import { BRAND } from "../lib/brand";
+import { fmtCalendarDate } from "../lib/format";
 
-export default function IDCard({ person }) {
+/**
+ * A printable, physical-style ID badge (CR80 portrait proportions).
+ * Always rendered in light colours — it represents a printed card.
+ */
+export default function IDCard({ person, photoSrc, preview = false, className = "" }) {
   const canvasRef = useRef(null);
-  const cardRef = useRef(null);
+  const qrValue = person?.idNumber || "";
 
   useEffect(() => {
-    gsap.fromTo(
-      cardRef.current,
-      { scale: 0.92, opacity: 0, y: 16 },
-      { scale: 1, opacity: 1, y: 0, duration: 0.45, ease: "back.out(1.4)" }
-    );
-  }, []);
-
-  useEffect(() => {
-    if (canvasRef.current && person?.idNumber) {
-      QRCode.toCanvas(canvasRef.current, person.idNumber, {
-        width: 88,
-        margin: 1,
-        color: { dark: "#0f172a", light: "#ffffff" },
-      });
-    }
-  }, [person?.idNumber]);
+    if (!canvasRef.current || !qrValue) return;
+    QRCode.toCanvas(canvasRef.current, qrValue, {
+      width: 84,
+      margin: 0,
+      errorCorrectionLevel: "M",
+      color: { dark: "#0e1116", light: "#ffffff" },
+    });
+  }, [qrValue]);
 
   if (!person) return null;
 
-  const isStaff = person.type === "staff";
-  const photoUrl = person.photo ? `/uploads/${person.photo}` : null;
-  const isActive = person.status === "active";
+  const isStaff = person.type !== "visitor";
+  const photo = photoSrc || photoUrl(person);
+  const revoked = person.status === "revoked";
+  const band = isStaff ? "#1d3f91" : "#b2541b";
 
   return (
     <div
-      ref={cardRef}
-      className={`w-72 rounded-2xl overflow-hidden shadow-2xl border ${
-        isStaff ? "border-pink-500/30" : "border-purple-500/30"
-      } bg-gray-900`}
+      className={`print-card relative w-[264px] aspect-[54/85.6] rounded-[14px] overflow-hidden bg-white text-[#0e1116] shadow-card ring-1 ring-black/[0.08] flex flex-col select-none ${className}`}
     >
-      {/* Header stripe */}
+      {/* Header band */}
+      <div className="px-4 pt-3.5 pb-3 text-white flex items-start justify-between" style={{ background: band }}>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold leading-tight truncate">{BRAND.cardTitle}</p>
+          <p className="text-[9.5px] uppercase tracking-[0.14em] text-white/70 mt-0.5">Identity card</p>
+        </div>
+        <svg viewBox="0 0 32 32" className="w-6 h-6 shrink-0" aria-hidden>
+          <rect width="32" height="32" rx="8" fill="rgba(255,255,255,0.16)" />
+          <path d="M9 22V10.5l7 7.5 7-7.5V22" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+
+      {/* Photo + identity */}
+      <div className="flex-1 flex flex-col items-center px-4 pt-4 text-center min-h-0">
+        <div className="w-[92px] h-[110px] rounded-lg overflow-hidden bg-[#eef0f3] ring-1 ring-black/[0.06] flex items-center justify-center">
+          {photo ? (
+            <img src={photo} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <User size={36} className="text-[#a7adb7]" />
+          )}
+        </div>
+        <p className="mt-3 text-[15px] font-semibold leading-snug line-clamp-2 break-words">
+          {person.name || (preview ? "Full name" : "—")}
+        </p>
+        <p className="text-[11.5px] text-[#555c69] mt-0.5 line-clamp-1">
+          {isStaff
+            ? [person.role, person.department].filter(Boolean).join(" · ") || (preview ? "Role · Department" : "")
+            : person.purpose || (preview ? "Purpose of visit" : "")}
+        </p>
+        {!isStaff && (person.hostName || person.expectedDate) && (
+          <p className="text-[10.5px] text-[#8b919c] mt-1 line-clamp-1">
+            {person.hostName ? `Host: ${person.hostName}` : ""}
+            {person.hostName && person.expectedDate ? " · " : ""}
+            {person.expectedDate ? `Valid ${fmtCalendarDate(person.expectedDate)}` : ""}
+          </p>
+        )}
+      </div>
+
+      {/* ID + QR */}
+      <div className="px-4 pb-3 pt-2 flex items-end justify-between gap-3">
+        <div className="min-w-0 pb-0.5">
+          <p className="text-[9px] uppercase tracking-[0.14em] text-[#8b919c]">ID number</p>
+          <p className="font-mono text-[12.5px] font-semibold tracking-wide mt-0.5">
+            {person.idNumber || "SCH-XXXXXXXX"}
+          </p>
+        </div>
+        <div className="w-[84px] h-[84px] shrink-0 flex items-center justify-center">
+          {person.idNumber ? (
+            <canvas ref={canvasRef} className="w-[84px] h-[84px]" />
+          ) : (
+            <div className="w-full h-full rounded-md border border-dashed border-[#cfd3da] flex items-center justify-center text-[9px] text-[#8b919c] uppercase tracking-wider">
+              QR
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Type strip */}
       <div
-        className={`px-5 py-3.5 flex items-center justify-between ${
-          isStaff
-            ? "bg-gradient-to-r from-pink-700 to-pink-600"
-            : "bg-gradient-to-r from-purple-700 to-purple-600"
-        }`}
+        className="h-7 flex items-center justify-center text-[11px] font-semibold uppercase tracking-[0.22em] text-white"
+        style={{ background: revoked ? "#c6312f" : band }}
       >
-        <div>
-          <p className="text-[10px] text-white/60 uppercase tracking-widest font-medium">
-            School ID System
-          </p>
-          <p className="text-white font-bold text-sm capitalize mt-0.5">
-            {person.type} Card
-          </p>
-        </div>
-        <div className="p-2 bg-white/10 rounded-xl">
-          {isStaff ? (
-            <Building2 size={16} className="text-white" />
-          ) : (
-            <User size={16} className="text-white" />
-          )}
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="px-5 py-4 flex gap-4 items-start">
-        {/* Photo */}
-        <div
-          className={`w-16 h-16 rounded-xl overflow-hidden shrink-0 border-2 ${
-            isStaff ? "border-pink-500/40" : "border-purple-500/40"
-          } bg-gray-800 flex items-center justify-center`}
-        >
-          {photoUrl ? (
-            <img
-              src={photoUrl}
-              alt={person.name}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <User size={26} className="text-gray-500" />
-          )}
-        </div>
-
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-white truncate text-sm">{person.name}</p>
-
-          {isStaff ? (
-            <>
-              <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-                <MapPin size={10} />
-                {person.role || "—"}
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">{person.department || "—"}</p>
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-gray-400 mt-0.5">{person.purpose || "—"}</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                Host: {person.hostName || "—"}
-              </p>
-            </>
-          )}
-
-          <span
-            className={`inline-flex items-center gap-1 mt-2 text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide ${
-              isActive
-                ? "bg-green-500/15 text-green-400 border border-green-500/20"
-                : "bg-red-500/15 text-red-400 border border-red-500/20"
-            }`}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                isActive ? "bg-green-400" : "bg-red-400"
-              }`}
-            />
-            {person.status}
-          </span>
-        </div>
-      </div>
-
-      {/* Footer — ID + QR */}
-      <div className="bg-gray-950/60 px-5 py-3 flex items-center justify-between border-t border-white/5">
-        <div>
-          <p className="text-[10px] text-gray-500 uppercase tracking-widest flex items-center gap-1 mb-1">
-            <Hash size={9} />
-            ID Number
-          </p>
-          <p className="font-mono text-xs text-white font-bold tracking-wide">
-            {person.idNumber}
-          </p>
-        </div>
-        <div className="rounded-lg overflow-hidden border border-white/10">
-          <canvas ref={canvasRef} />
-        </div>
+        {revoked ? "Revoked" : isStaff ? "Staff" : "Visitor"}
       </div>
     </div>
   );

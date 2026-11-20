@@ -1,122 +1,128 @@
-const express = require("express");
+import express from "express";
+import mongoose from "mongoose";
+import multer from "multer";
+import Person from "../models/Person.js";
+import { requireAdmin } from "../auth.js";
+import httpError from "../lib/httpError.js";
+import { isDateString } from "../lib/time.js";
+
 const router = express.Router();
-const multer = require("multer");
-const path = require("path");
-const Person = require("../models/Person");
 
-// Multer config
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, "../uploads")),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
-  },
-});
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_PHOTO_BYTES = 4 * 1024 * 1024; // Vercel caps request bodies at 4.5MB
+
 const upload = multer({
-  storage,
-  fileFilter: (req, file, cb) => {
-    const allowed = ["image/jpeg", "image/png", "image/webp"];
-    if (allowed.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(Object.assign(new Error("Images only (jpeg, png, webp)"), { status: 400 }));
-    }
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_PHOTO_BYTES, files: 1, fields: 20 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMAGE_TYPES.includes(file.mimetype)) cb(null, true);
+    else cb(httpError(400, "Photo must be a JPEG, PNG or WebP image"));
   },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
-// GET /api/people — list all (with optional ?type=staff|visitor&status=active|revoked)
-router.get("/", async (req, res) => {
-  try {
-    const filter = {};
-    if (req.query.type) filter.type = req.query.type;
-    if (req.query.status) filter.status = req.query.status;
+const STAFF_FIELDS = ["role", "department"];
+const VISITOR_FIELDS = ["purpose", "hostName", "expectedDate"];
 
-    const people = await Person.find(filter).sort({ createdAt: -1 });
-    res.json(people);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+function validObjectId(req, _res, next) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(400, "Invalid id");
+  next();
+}
+
+function pickString(value) {
+  return typeof value === "string" ? value.trim() : undefined;
+}
+
+// GET /api/people/:id/photo — public so ID cards render at the check-in desk.
+router.get("/:id/photo", validObjectId, async (req, res) => {
+  const person = await Person.findById(req.params.id).select(
+    "+photoData +photoType hasPhoto updatedAt"
+  );
+  if (!person?.hasPhoto || !person.photoData) throw httpError(404, "Photo not found");
+  res.set({
+    "Content-Type": person.photoType || "image/jpeg",
+    "Cache-Control": "private, max-age=86400",
+    "Last-Modified": person.updatedAt.toUTCString(),
+  });
+  res.send(person.photoData);
+});
+
+// Everything below is admin-only.
+router.use(requireAdmin);
+
+// GET /api/people — list (optional ?type=staff|visitor&status=active|revoked)
+router.get("/", async (req, res) => {
+  const filter = {};
+  if (["staff", "visitor"].includes(req.query.type)) filter.type = req.query.type;
+  if (["active", "revoked"].includes(req.query.status)) filter.status = req.query.status;
+
+  const people = await Person.find(filter).sort({ createdAt: -1 }).limit(1000);
+  res.json(people);
 });
 
 // GET /api/people/stats — dashboard counts
-router.get("/stats", async (req, res) => {
-  try {
-    const [totalStaff, totalVisitors, activeStaff, activeVisitors] = await Promise.all([
-      Person.countDocuments({ type: "staff" }),
-      Person.countDocuments({ type: "visitor" }),
-      Person.countDocuments({ type: "staff", status: "active" }),
-      Person.countDocuments({ type: "visitor", status: "active" }),
-    ]);
-    res.json({ totalStaff, totalVisitors, activeStaff, activeVisitors });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+router.get("/stats", async (_req, res) => {
+  const [totalStaff, totalVisitors, activeStaff, activeVisitors] = await Promise.all([
+    Person.countDocuments({ type: "staff" }),
+    Person.countDocuments({ type: "visitor" }),
+    Person.countDocuments({ type: "staff", status: "active" }),
+    Person.countDocuments({ type: "visitor", status: "active" }),
+  ]);
+  res.json({ totalStaff, totalVisitors, activeStaff, activeVisitors });
 });
 
-// GET /api/people/:idNumber — verify by ID (used at check-in)
+// GET /api/people/:idNumber — look up by ID number
 router.get("/:idNumber", async (req, res) => {
-  try {
-    const person = await Person.findOne({ idNumber: req.params.idNumber });
-    if (!person) return res.status(404).json({ message: "Person not found" });
-    res.json(person);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+  const person = await Person.findOne({ idNumber: String(req.params.idNumber) });
+  if (!person) throw httpError(404, "Person not found");
+  res.json(person);
 });
 
-// POST /api/people — register new person
+// POST /api/people — register a new person
 router.post("/", upload.single("photo"), async (req, res) => {
-  try {
-    const data = { ...req.body };
-    if (req.file) data.photo = req.file.filename;
+  const body = req.body || {};
+  const type = pickString(body.type);
+  if (!["staff", "visitor"].includes(type)) throw httpError(400, "Type must be staff or visitor");
 
-    const person = new Person(data);
-    await person.save();
-    res.status(201).json(person);
-  } catch (err) {
-    res.status(400).json({ message: err.message });
+  const data = { name: pickString(body.name), type };
+  for (const field of type === "staff" ? STAFF_FIELDS : VISITOR_FIELDS) {
+    const value = pickString(body[field]);
+    if (value) data[field] = value;
   }
+  if (data.expectedDate && !isDateString(data.expectedDate)) {
+    throw httpError(400, "Expected date must be in YYYY-MM-DD format");
+  }
+
+  if (req.file) {
+    data.photoData = req.file.buffer;
+    data.photoType = req.file.mimetype;
+    data.hasPhoto = true;
+  }
+
+  const person = await Person.create(data);
+  res.status(201).json(person);
 });
 
-// PATCH /api/people/:id/revoke — revoke an ID
-router.patch("/:id/revoke", async (req, res) => {
-  try {
-    const person = await Person.findByIdAndUpdate(
-      req.params.id,
-      { status: "revoked" },
-      { new: true }
-    );
-    if (!person) return res.status(404).json({ message: "Not found" });
-    res.json(person);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+async function setStatus(req, res, status) {
+  const person = await Person.findByIdAndUpdate(
+    req.params.id,
+    { status },
+    { new: true, runValidators: true }
+  );
+  if (!person) throw httpError(404, "Person not found");
+  res.json(person);
+}
+
+// PATCH /api/people/:id/revoke
+router.patch("/:id/revoke", validObjectId, (req, res) => setStatus(req, res, "revoked"));
+
+// PATCH /api/people/:id/activate
+router.patch("/:id/activate", validObjectId, (req, res) => setStatus(req, res, "active"));
+
+// DELETE /api/people/:id (access logs are kept as an audit trail)
+router.delete("/:id", validObjectId, async (req, res) => {
+  const person = await Person.findByIdAndDelete(req.params.id);
+  if (!person) throw httpError(404, "Person not found");
+  res.json({ message: "Deleted" });
 });
 
-// PATCH /api/people/:id/activate — re-activate a revoked ID
-router.patch("/:id/activate", async (req, res) => {
-  try {
-    const person = await Person.findByIdAndUpdate(
-      req.params.id,
-      { status: "active" },
-      { new: true }
-    );
-    if (!person) return res.status(404).json({ message: "Not found" });
-    res.json(person);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// DELETE /api/people/:id
-router.delete("/:id", async (req, res) => {
-  try {
-    await Person.findByIdAndDelete(req.params.id);
-    res.json({ message: "Deleted" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-module.exports = router;
+export default router;

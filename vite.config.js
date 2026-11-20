@@ -9,7 +9,10 @@ export default defineConfig({
     allowedHosts: ['unfoisted-annabel-virilocally.ngrok-free.dev'],
     proxy: {
       '/api': 'http://localhost:5000',
-      '/uploads': 'http://localhost:5000',
-    }
-  }
+    },
+  },
+  build: {
+    sourcemap: false,
+    chunkSizeWarningLimit: 1000,
+  },
 })

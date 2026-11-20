@@ -1,218 +1,236 @@
-import { useEffect, useState, useRef } from "react";
-import { gsap } from "gsap";
+import { useMemo, useState } from "react";
+import { Search, Download, Inbox, X, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import useFetch from "../lib/useFetch";
+import { fmtDate, fmtLongDate, fmtTime } from "../lib/format";
 import {
-  ScrollText,
-  CalendarDays,
-  User,
-  Clock,
-  DoorOpen,
-  Tag,
-  Inbox,
-} from "lucide-react";
-import api from "../lib/axios";
+  Alert,
+  Avatar,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  PageHeader,
+  Segmented,
+  Skeleton,
+  StatusBadge,
+  TypeBadge,
+} from "../components/ui";
 
-const fmt = (d) =>
-  new Date(d).toLocaleString("en-NG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+const PAGE_SIZE = 25;
+
+const TYPE_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "staff", label: "Staff" },
+  { value: "visitor", label: "Visitors" },
+];
+
+function toCsv(rows) {
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = ["Name", "ID number", "Type", "Status", "Entry point", "Date", "Time", "Timestamp (UTC)"];
+  const lines = rows.map((l) =>
+    [
+      l.person?.name || "Deleted person",
+      l.person?.idNumber,
+      l.person?.type,
+      l.person?.status,
+      l.entryPoint,
+      fmtDate(l.checkInTime),
+      fmtTime(l.checkInTime),
+      new Date(l.checkInTime).toISOString(),
+    ]
+      .map(esc)
+      .join(",")
+  );
+  return [header.join(","), ...lines].join("\r\n");
+}
+
+function download(filename, text) {
+  const blob = new Blob(["﻿" + text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export default function Logs() {
-  const [logs, setLogs] = useState([]);
   const [date, setDate] = useState("");
-  const [loading, setLoading] = useState(true);
-  const headerRef = useRef(null);
-  const tableRef = useRef(null);
+  const [type, setType] = useState("");
+  const [query, setQuery] = useState("");
+  const params = useMemo(() => (date ? { date } : {}), [date]);
+  const { data, error, loading, reload } = useFetch("/logs", params);
 
-  const fetchLogs = async () => {
-    setLoading(true);
-    const params = {};
-    if (date) params.date = date;
-    const res = await api.get("/logs", { params });
-    setLogs(res.data);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    gsap.fromTo(
-      headerRef.current,
-      { y: -16, opacity: 0 },
-      { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data || []).filter(
+      (l) =>
+        (!type || l.person?.type === type) &&
+        (!q ||
+          (l.person?.name || "").toLowerCase().includes(q) ||
+          (l.person?.idNumber || "").toLowerCase().includes(q))
     );
-  }, []);
+  }, [data, type, query]);
 
-  useEffect(() => {
-    fetchLogs();
-  }, [date]);
+  const hasFilters = date || type || query;
 
-  useEffect(() => {
-    if (!loading && tableRef.current) {
-      const rows = tableRef.current.querySelectorAll("tr.log-row");
-      gsap.fromTo(
-        rows,
-        { opacity: 0, x: -12 },
-        {
-          opacity: 1,
-          x: 0,
-          duration: 0.35,
-          stagger: 0.04,
-          ease: "power2.out",
-        }
-      );
-    }
-  }, [loading, logs]);
+  // Pagination (resets to the first page whenever the filters change)
+  const filterSig = `${date}|${type}|${query}`;
+  const [pager, setPager] = useState({ sig: filterSig, page: 0 });
+  const page = pager.sig === filterSig ? pager.page : 0;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageRows = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const goTo = (p) => setPager({ sig: filterSig, page: p });
 
   return (
-    <div>
-      {/* Header */}
-      <div
-        ref={headerRef}
-        className="flex items-center justify-between mb-7 flex-wrap gap-4"
-      >
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-1 h-6 bg-pink-500 rounded-full" />
-            <h1 className="text-2xl font-bold text-white">Access Logs</h1>
-          </div>
-          <p className="text-sm text-gray-500 ml-4">
-            All check-in activity — filter by date
-          </p>
-        </div>
+    <>
+      <PageHeader
+        title="Access logs"
+        description={date ? `Check-ins on ${fmtLongDate(date + "T12:00:00")}` : "Every verified entry at the check-in desk"}
+        actions={
+          <Button
+            icon={Download}
+            disabled={!filtered.length}
+            onClick={() => download(`access-log-${date || "recent"}.csv`, toCsv(filtered))}
+          >
+            Export CSV
+          </Button>
+        }
+      />
 
-        <div className="flex items-center gap-2 bg-gray-900 border border-white/5 rounded-xl px-3 py-2">
-          <CalendarDays size={14} className="text-gray-400" />
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="bg-transparent text-sm outline-none text-gray-300"
-          />
-        </div>
-      </div>
+      {error && (
+        <Alert className="mb-4" icon={AlertCircle}>
+          {error}{" "}
+          <button className="underline" onClick={reload}>
+            Retry
+          </button>
+        </Alert>
+      )}
 
-      {/* Content */}
-      {loading ? (
-        <div className="space-y-2">
-          {[...Array(5)].map((_, i) => (
-            <div
-              key={i}
-              className="h-16 bg-gray-900 rounded-xl animate-pulse border border-white/5"
+      <Card className="overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center px-4 py-3 border-b border-line">
+          <div className="md:w-64">
+            <Input
+              icon={Search}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name or ID…"
+              aria-label="Search logs"
             />
-          ))}
-        </div>
-      ) : logs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="p-4 rounded-2xl bg-gray-900 border border-white/5 mb-4">
-            <Inbox size={28} className="text-gray-600" />
           </div>
-          <p className="text-gray-400 font-medium">No logs found</p>
-          <p className="text-gray-600 text-sm mt-1">
-            {date ? "No activity on this date" : "No check-ins recorded yet"}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Segmented options={TYPE_OPTIONS} value={type} onChange={setType} />
+            <div className="relative">
+              <Input
+                type="date"
+                value={date}
+                max={new Date().toLocaleDateString("en-CA")}
+                onChange={(e) => setDate(e.target.value)}
+                aria-label="Filter by date"
+                className="w-44"
+              />
+            </div>
+            {hasFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={X}
+                onClick={() => {
+                  setDate("");
+                  setType("");
+                  setQuery("");
+                }}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          <p className="md:ml-auto text-xs text-subtle tabular-nums">
+            {data ? `${filtered.length} record${filtered.length === 1 ? "" : "s"}` : ""}
           </p>
         </div>
-      ) : (
-        <div className="bg-gray-900 border border-white/5 rounded-2xl overflow-hidden">
-          {/* Count badge */}
-          <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between">
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-widest">
-              Showing {logs.length} record{logs.length !== 1 ? "s" : ""}
-            </p>
-            <div className="flex items-center gap-1.5 text-xs text-pink-400 bg-pink-500/10 px-2.5 py-1 rounded-full border border-pink-500/20">
-              <ScrollText size={11} />
-              {date ? "Filtered" : "All time"}
-            </div>
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" ref={tableRef}>
+        {!data || (loading && !filtered.length) ? (
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 8 }, (_, i) => (
+              <Skeleton key={i} className="h-11 w-full" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={Inbox}
+            title="No check-ins found"
+            description={hasFilters ? "Nothing matches these filters." : "Verified entries from the desk will appear here."}
+          />
+        ) : (
+          <div className={`overflow-x-auto transition-opacity ${loading ? "opacity-60" : ""}`}>
+            <table className="w-full text-[13.5px]">
               <thead>
-                <tr className="border-b border-white/5">
-                  <th className="text-left px-5 py-3 text-xs text-gray-500 font-medium uppercase tracking-widest">
-                    <span className="flex items-center gap-1.5">
-                      <User size={11} />
-                      Person
-                    </span>
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs text-gray-500 font-medium uppercase tracking-widest">
-                    <span className="flex items-center gap-1.5">
-                      <Tag size={11} />
-                      Type
-                    </span>
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs text-gray-500 font-medium uppercase tracking-widest">
-                    <span className="flex items-center gap-1.5">
-                      <DoorOpen size={11} />
-                      Entry Point
-                    </span>
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs text-gray-500 font-medium uppercase tracking-widest">
-                    <span className="flex items-center gap-1.5">
-                      <Clock size={11} />
-                      Time
-                    </span>
-                  </th>
+                <tr className="bg-surface-2 text-left text-xs text-muted">
+                  <th className="font-medium px-4 py-2.5">Person</th>
+                  <th className="font-medium px-4 py-2.5 hidden sm:table-cell">Type</th>
+                  <th className="font-medium px-4 py-2.5 hidden md:table-cell">Current status</th>
+                  <th className="font-medium px-4 py-2.5 hidden sm:table-cell">Entry point</th>
+                  <th className="font-medium px-4 py-2.5 text-right">Date</th>
+                  <th className="font-medium px-4 py-2.5 text-right">Time</th>
                 </tr>
               </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr
-                    key={log._id}
-                    className="log-row border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors"
-                  >
-                    {/* Person */}
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gray-800 border border-white/5 overflow-hidden flex items-center justify-center shrink-0">
-                          {log.person?.photo ? (
-                            <img
-                              src={`/uploads/${log.person.photo}`}
-                              alt={log.person?.name}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <User size={14} className="text-gray-500" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium text-white">
-                            {log.person?.name || "Unknown"}
-                          </p>
-                          <p className="text-xs font-mono text-gray-500">
-                            {log.person?.idNumber}
-                          </p>
+              <tbody className="divide-y divide-line">
+                {pageRows.map((l) => (
+                  <tr key={l._id} className="hover:bg-surface-2/60 transition-colors">
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3 min-w-[200px]">
+                        <Avatar person={l.person} size="sm" />
+                        <div className="min-w-0">
+                          <p className="font-medium text-fg truncate">{l.person?.name || "Deleted person"}</p>
+                          <p className="text-xs text-subtle font-mono">{l.person?.idNumber || "—"}</p>
                         </div>
                       </div>
                     </td>
-
-                    {/* Type */}
-                    <td className="px-5 py-3.5">
-                      <span
-                        className={`text-xs px-2.5 py-1 rounded-full font-medium capitalize border ${
-                          log.person?.type === "staff"
-                            ? "bg-pink-500/10 text-pink-400 border-pink-500/20"
-                            : "bg-purple-500/10 text-purple-400 border-purple-500/20"
-                        }`}
-                      >
-                        {log.person?.type || "—"}
-                      </span>
+                    <td className="px-4 py-2.5 hidden sm:table-cell">
+                      <TypeBadge type={l.person?.type} />
                     </td>
-
-                    {/* Entry Point */}
-                    <td className="px-5 py-3.5 text-gray-400 text-sm">
-                      {log.entryPoint || "—"}
+                    <td className="px-4 py-2.5 hidden md:table-cell">
+                      {l.person ? <StatusBadge status={l.person.status} /> : <span className="text-subtle">—</span>}
                     </td>
-
-                    {/* Time */}
-                    <td className="px-5 py-3.5 text-gray-400 text-sm font-mono">
-                      {fmt(log.checkInTime)}
+                    <td className="px-4 py-2.5 text-muted hidden sm:table-cell">{l.entryPoint || "—"}</td>
+                    <td className="px-4 py-2.5 text-muted text-right tabular-nums whitespace-nowrap">
+                      {fmtDate(l.checkInTime)}
                     </td>
+                    <td className="px-4 py-2.5 text-fg text-right tabular-nums font-medium">{fmtTime(l.checkInTime)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {filtered.length > 0 && (
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-t border-line">
+            <p className="text-xs text-subtle tabular-nums">
+              {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+              {!date && data.length >= 200 && " · latest 200 shown, pick a date for a full day"}
+            </p>
+            {pageCount > 1 && (
+              <div className="flex items-center gap-1">
+                <Button size="icon-sm" variant="ghost" aria-label="Previous page" disabled={page === 0} onClick={() => goTo(page - 1)}>
+                  <ChevronLeft size={16} />
+                </Button>
+                <span className="text-xs text-muted tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <Button size="icon-sm" variant="ghost" aria-label="Next page" disabled={page >= pageCount - 1} onClick={() => goTo(page + 1)}>
+                  <ChevronRight size={16} />
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+    </>
   );
 }

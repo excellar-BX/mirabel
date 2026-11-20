@@ -1,13 +1,5 @@
-const { app, connectDB } = require("../server/index");
+// Vercel serverless entry: every /api/* request is rewritten here (see vercel.json).
+// The React app itself is served by Vercel as static files from dist/.
+import app from "../server/app.js";
 
-// Connect to MongoDB before handling requests
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    res.status(500).json({ message: "Database connection failed" });
-  }
-});
-
-module.exports = app;
+export default app;

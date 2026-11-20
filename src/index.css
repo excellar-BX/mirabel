@@ -1,1 +1,219 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* ───────────────────────── Design tokens ───────────────────────── */
+
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f2f3f6;
+  --surface-3: #e9ebef;
+  --line: #e4e6eb;
+  --line-strong: #cfd3da;
+  --fg: #0e1116;
+  --fg-muted: #555c69;
+  --fg-subtle: #8b919c;
+  --accent: #2459d1;
+  --accent-hover: #1c4ab3;
+  --accent-fg: #ffffff;
+  --accent-soft: #ebf1fd;
+  --success: #15803d;
+  --success-soft: #e8f6ed;
+  --danger: #c6312f;
+  --danger-soft: #fcecec;
+  --warning: #b45309;
+  --warning-soft: #fdf3e4;
+  --ring: rgb(36 89 209 / 0.35);
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-md: 0 1px 2px rgb(16 24 40 / 0.04), 0 4px 12px rgb(16 24 40 / 0.06);
+  --shadow-lg: 0 12px 32px rgb(16 24 40 / 0.14), 0 2px 6px rgb(16 24 40 / 0.06);
+  /* Chart series (validated categorical slots 1–2) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0b0c0f;
+    --surface: #131519;
+    --surface-2: #1a1d22;
+    --surface-3: #22262c;
+    --line: #252930;
+    --line-strong: #343a43;
+    --fg: #eceef2;
+    --fg-muted: #a3a9b4;
+    --fg-subtle: #6e7581;
+    --accent: #5684f0;
+    --accent-hover: #6c95f3;
+    --accent-fg: #ffffff;
+    --accent-soft: rgb(86 132 240 / 0.14);
+    --success: #3fb96b;
+    --success-soft: rgb(63 185 107 / 0.13);
+    --danger: #ef6866;
+    --danger-soft: rgb(239 104 102 / 0.13);
+    --warning: #e2a23d;
+    --warning-soft: rgb(226 162 61 / 0.13);
+    --ring: rgb(86 132 240 / 0.45);
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 16px 40px rgb(0 0 0 / 0.55);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0c0f;
+  --surface: #131519;
+  --surface-2: #1a1d22;
+  --surface-3: #22262c;
+  --line: #252930;
+  --line-strong: #343a43;
+  --fg: #eceef2;
+  --fg-muted: #a3a9b4;
+  --fg-subtle: #6e7581;
+  --accent: #5684f0;
+  --accent-hover: #6c95f3;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(86 132 240 / 0.14);
+  --success: #3fb96b;
+  --success-soft: rgb(63 185 107 / 0.13);
+  --danger: #ef6866;
+  --danger-soft: rgb(239 104 102 / 0.13);
+  --warning: #e2a23d;
+  --warning-soft: rgb(226 162 61 / 0.13);
+  --ring: rgb(86 132 240 / 0.45);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 16px 40px rgb(0 0 0 / 0.55);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --color-app: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+
+  --shadow-xs: var(--shadow-sm);
+  --shadow-card: var(--shadow-md);
+  --shadow-pop: var(--shadow-lg);
+}
+
+/* ───────────────────────── Base ───────────────────────── */
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.55;
+    cursor: pointer;
+  }
+  :root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+    }
+  }
+}
+
+/* ───────────────────────── Motion ───────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes shrink {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+.animate-fade-in { animation: fade-in 180ms ease-out both; }
+.animate-slide-in-right { animation: slide-in-right 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* ───────────────────────── QR scanner ───────────────────────── */
+
+#qr-reader {
+  border: 0 !important;
+  width: 100%;
+  height: 100%;
+}
+#qr-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+#qr-reader #qr-shaded-region {
+  border-color: rgb(0 0 0 / 0.45) !important;
+}
+
+/* ───────────────────────── Print (ID cards) ───────────────────────── */
+
+@media print {
+  @page { margin: 12mm; }
+  body * { visibility: hidden !important; }
+  .print-card, .print-card * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-card {
+    position: fixed !important;
+    left: 0;
+    top: 0;
+    box-shadow: none !important;
+  }
+}

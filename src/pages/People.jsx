@@ -1,264 +1,353 @@
-import { useEffect, useState, useRef } from "react";
-import { gsap } from "gsap";
+import { useMemo, useState } from "react";
 import {
+  Search,
+  UserPlus,
   Users,
-  User,
-  Filter,
-  ShieldCheck,
-  ShieldOff,
-  X,
   ChevronRight,
+  ShieldOff,
+  ShieldCheck,
+  Printer,
+  Trash2,
+  X,
+  AlertCircle,
 } from "lucide-react";
 import api from "../lib/axios";
+import useFetch from "../lib/useFetch";
+import { capitalize, fmtCalendarDate, fmtDate } from "../lib/format";
 import IDCard from "../components/IDCard";
+import {
+  Alert,
+  Avatar,
+  Button,
+  ButtonLink,
+  Card,
+  DetailList,
+  Drawer,
+  EmptyState,
+  Input,
+  PageHeader,
+  Segmented,
+  Select,
+  Skeleton,
+  StatusBadge,
+  TypeBadge,
+} from "../components/ui";
 
-export default function People() {
-  const [people, setPeople] = useState([]);
-  const [filter, setFilter] = useState({ type: "", status: "" });
-  const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState(false);
-  const headerRef = useRef(null);
-  const listRef = useRef(null);
-  const modalRef = useRef(null);
+const TYPE_OPTIONS = [
+  { value: "", label: "All" },
+  { value: "staff", label: "Staff" },
+  { value: "visitor", label: "Visitors" },
+];
 
-  const fetchPeople = async () => {
-    setLoading(true);
-    const params = {};
-    if (filter.type) params.type = filter.type;
-    if (filter.status) params.status = filter.status;
-    const res = await api.get("/people", { params });
-    setPeople(res.data);
-    setLoading(false);
+function PersonDrawer({ person, onClose, onChanged }) {
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const run = async (kind, fn) => {
+    setBusy(kind);
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      setError(err.response?.data?.message || "Something went wrong. Please try again.");
+    } finally {
+      setBusy(null);
+    }
   };
 
-  useEffect(() => {
-    gsap.fromTo(
-      headerRef.current,
-      { y: -16, opacity: 0 },
-      { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }
-    );
-  }, []);
+  const toggleStatus = () =>
+    run("status", async () => {
+      const action = person.status === "active" ? "revoke" : "activate";
+      const res = await api.patch(`/people/${person._id}/${action}`);
+      onChanged(res.data);
+    });
 
-  useEffect(() => {
-    fetchPeople();
-  }, [filter]);
+  const remove = () =>
+    run("delete", async () => {
+      await api.delete(`/people/${person._id}`);
+      onChanged(null);
+      onClose();
+    });
 
-  useEffect(() => {
-    if (!loading && listRef.current) {
-      const items = listRef.current.querySelectorAll(".person-row");
-      gsap.fromTo(
-        items,
-        { opacity: 0, y: 12 },
-        { opacity: 1, y: 0, stagger: 0.05, duration: 0.35, ease: "power2.out" }
-      );
-    }
-  }, [loading, people]);
-
-  useEffect(() => {
-    if (selected && modalRef.current) {
-      gsap.fromTo(
-        modalRef.current,
-        { scale: 0.93, opacity: 0, y: 20 },
-        { scale: 1, opacity: 1, y: 0, duration: 0.35, ease: "back.out(1.2)" }
-      );
-    }
-  }, [selected]);
-
-  const toggle = async (person) => {
-    const action = person.status === "active" ? "revoke" : "activate";
-    setToggling(true);
-    await api.patch(`/people/${person._id}/${action}`);
-    setToggling(false);
-    fetchPeople();
-    setSelected(null);
-  };
-
-  const filterOptions = [
-    { key: "type", options: ["", "staff", "visitor"], placeholder: "All Types" },
-    { key: "status", options: ["", "active", "revoked"], placeholder: "All Status" },
+  const isStaff = person.type === "staff";
+  const details = [
+    ["ID number", <span className="font-mono">{person.idNumber}</span>],
+    ["Type", capitalize(person.type)],
+    ["Status", <StatusBadge status={person.status} />],
+    ...(isStaff
+      ? [
+          ["Role", person.role],
+          ["Department", person.department],
+        ]
+      : [
+          ["Purpose", person.purpose],
+          ["Host", person.hostName],
+          ["Scheduled date", person.expectedDate ? fmtCalendarDate(person.expectedDate) : "Any day"],
+        ]),
+    ["Registered", fmtDate(person.createdAt)],
   ];
 
   return (
-    <div>
-      {/* Header */}
-      <div ref={headerRef} className="mb-7">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-1 h-6 bg-pink-500 rounded-full" />
-          <h1 className="text-2xl font-bold text-white">People</h1>
-        </div>
-        <p className="text-sm text-gray-500 ml-4">
-          Manage staff and visitor records
-        </p>
-      </div>
-
-      {/* Filters */}
-      <div className="flex gap-3 mb-5 flex-wrap items-center">
-        <div className="flex items-center gap-1.5 text-xs text-gray-500">
-          <Filter size={13} />
-          <span>Filter:</span>
-        </div>
-        {filterOptions.map(({ key, options, placeholder }) => (
-          <select
-            key={key}
-            value={filter[key]}
-            onChange={(e) => setFilter((p) => ({ ...p, [key]: e.target.value }))}
-            className="bg-gray-900 border border-white/5 text-sm rounded-xl 
-              px-3 py-2 outline-none capitalize text-gray-300 
-              focus:ring-2 focus:ring-pink-500/40 cursor-pointer"
-          >
-            <option value="">{placeholder}</option>
-            {options
-              .filter((o) => o)
-              .map((o) => (
-                <option key={o} value={o}>
-                  {o.charAt(0).toUpperCase() + o.slice(1)}
-                </option>
-              ))}
-          </select>
-        ))}
-
-        {(filter.type || filter.status) && (
-          <button
-            onClick={() => setFilter({ type: "", status: "" })}
-            className="text-xs text-gray-500 hover:text-white flex items-center gap-1 
-              px-3 py-2 rounded-xl bg-gray-900 border border-white/5 transition-colors"
-          >
-            <X size={12} />
-            Clear
-          </button>
-        )}
-
-        <span className="ml-auto text-xs text-gray-600 font-medium">
-          {people.length} record{people.length !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* List */}
-      {loading ? (
-        <div className="space-y-2">
-          {[...Array(4)].map((_, i) => (
-            <div
-              key={i}
-              className="h-[68px] bg-gray-900 rounded-xl animate-pulse border border-white/5"
-            />
-          ))}
-        </div>
-      ) : people.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="p-4 rounded-2xl bg-gray-900 border border-white/5 mb-4">
-            <Users size={28} className="text-gray-600" />
+    <Drawer
+      open
+      onClose={onClose}
+      title={person.name}
+      footer={
+        confirmDelete ? (
+          <div className="space-y-3">
+            <p className="text-[13px] text-fg">
+              Delete <span className="font-semibold">{person.name}</span> permanently? Their access history is kept.
+            </p>
+            <div className="flex gap-2">
+              <Button variant="danger" className="flex-1" loading={busy === "delete"} onClick={remove}>
+                Delete permanently
+              </Button>
+              <Button className="flex-1" onClick={() => setConfirmDelete(false)} disabled={!!busy}>
+                Cancel
+              </Button>
+            </div>
           </div>
-          <p className="text-gray-400 font-medium">No people found</p>
-          <p className="text-gray-600 text-sm mt-1">Try adjusting your filters</p>
-        </div>
-      ) : (
-        <div ref={listRef} className="space-y-2">
-          {people.map((p) => (
-            <div
-              key={p._id}
-              onClick={() => setSelected(p)}
-              className="person-row bg-gray-900 border border-white/5 rounded-xl 
-                px-5 py-4 flex items-center gap-4 cursor-pointer 
-                hover:bg-gray-800/80 hover:border-white/10 transition-all duration-200 group"
+        ) : (
+          <div className="flex gap-2">
+            <Button
+              variant={person.status === "active" ? "danger" : "success"}
+              icon={person.status === "active" ? ShieldOff : ShieldCheck}
+              className="flex-1"
+              loading={busy === "status"}
+              disabled={!!busy}
+              onClick={toggleStatus}
             >
-              {/* Avatar */}
-              <div className="w-10 h-10 rounded-full bg-gray-800 border border-white/5 overflow-hidden flex items-center justify-center shrink-0">
-                {p.photo ? (
-                  <img
-                    src={`/uploads/${p.photo}`}
-                    alt={p.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <User size={16} className="text-gray-500" />
-                )}
-              </div>
-
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-white truncate">{p.name}</p>
-                <p className="text-xs text-gray-500 capitalize mt-0.5">
-                  {p.type}
-                  {p.role ? ` · ${p.role}` : ""}
-                  {p.department ? ` · ${p.department}` : ""}
-                </p>
-              </div>
-
-              {/* Right side */}
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="font-mono text-xs text-gray-600 hidden sm:block">
-                  {p.idNumber}
-                </span>
-                <span
-                  className={`text-xs px-2.5 py-0.5 rounded-full font-medium border ${
-                    p.status === "active"
-                      ? "bg-green-500/10 text-green-400 border-green-500/20"
-                      : "bg-red-500/10 text-red-400 border-red-500/20"
-                  }`}
-                >
-                  {p.status}
-                </span>
-                <ChevronRight
-                  size={14}
-                  className="text-gray-600 group-hover:text-gray-400 transition-colors"
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Modal */}
-      {selected && (
-        <div
-          className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center 
-            justify-center z-50 p-4"
-          onClick={() => setSelected(null)}
-        >
-          <div
-            ref={modalRef}
-            onClick={(e) => e.stopPropagation()}
-            className="space-y-3"
-          >
-            <IDCard person={selected} />
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => toggle(selected)}
-                disabled={toggling}
-                className={`flex-1 py-3 rounded-xl font-medium text-sm transition-colors 
-                  flex items-center justify-center gap-2 disabled:opacity-50 ${
-                    selected.status === "active"
-                      ? "bg-red-600 hover:bg-red-500 text-white"
-                      : "bg-green-600 hover:bg-green-500 text-white"
-                  }`}
-              >
-                {selected.status === "active" ? (
-                  <>
-                    <ShieldOff size={15} />
-                    Revoke ID
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck size={15} />
-                    Activate ID
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => setSelected(null)}
-                className="flex-1 py-3 rounded-xl font-medium text-sm 
-                  bg-gray-800 hover:bg-gray-700 transition-colors 
-                  flex items-center justify-center gap-2 text-gray-300"
-              >
-                <X size={15} />
-                Close
-              </button>
-            </div>
+              {person.status === "active" ? "Revoke ID" : "Reactivate ID"}
+            </Button>
+            <Button icon={Printer} onClick={() => window.print()} disabled={!!busy}>
+              Print
+            </Button>
+            <Button
+              variant="danger-ghost"
+              size="icon"
+              title="Delete"
+              aria-label="Delete person"
+              onClick={() => setConfirmDelete(true)}
+              disabled={!!busy}
+            >
+              <Trash2 size={16} />
+            </Button>
           </div>
+        )
+      }
+    >
+      <div className="h-16 px-5 flex items-center justify-between border-b border-line shrink-0">
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold text-fg truncate">{person.name}</p>
+          <p className="text-xs text-subtle">{isStaff ? "Staff member" : "Visitor"}</p>
         </div>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+          <X size={17} />
+        </Button>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        <div className="bg-surface-2 border-b border-line py-7 flex justify-center">
+          <IDCard person={person} />
+        </div>
+        <div className="px-5 py-4">
+          {error && (
+            <Alert icon={AlertCircle} className="mb-4">
+              {error}
+            </Alert>
+          )}
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-subtle mb-1">Details</p>
+          <DetailList items={details} />
+        </div>
+      </div>
+    </Drawer>
+  );
+}
+
+export default function People() {
+  const { data, error, reload, loading } = useFetch("/people");
+  const [query, setQuery] = useState("");
+  const [type, setType] = useState("");
+  const [status, setStatus] = useState("");
+  const [selectedId, setSelectedId] = useState(null);
+  const [overrides, setOverrides] = useState({});
+
+  const people = useMemo(
+    () => (data || []).filter((p) => overrides[p._id] !== null).map((p) => overrides[p._id] || p),
+    [data, overrides]
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return people.filter(
+      (p) =>
+        (!type || p.type === type) &&
+        (!status || p.status === status) &&
+        (!q ||
+          p.name.toLowerCase().includes(q) ||
+          p.idNumber.toLowerCase().includes(q) ||
+          (p.role || "").toLowerCase().includes(q) ||
+          (p.department || "").toLowerCase().includes(q) ||
+          (p.hostName || "").toLowerCase().includes(q))
+    );
+  }, [people, query, type, status]);
+
+  const selected = people.find((p) => p._id === selectedId);
+  const hasFilters = query || type || status;
+
+  return (
+    <>
+      <PageHeader
+        title="People"
+        description={
+          data
+            ? `${people.length} registered · ${people.filter((p) => p.status === "active").length} active`
+            : "Staff and visitor directory"
+        }
+        actions={
+          <ButtonLink to="/admin/register" variant="primary" icon={UserPlus}>
+            Register person
+          </ButtonLink>
+        }
+      />
+
+      {error && (
+        <Alert className="mb-4" icon={AlertCircle}>
+          {error}{" "}
+          <button className="underline" onClick={reload}>
+            Retry
+          </button>
+        </Alert>
       )}
-    </div>
+
+      <Card className="overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center px-4 py-3 border-b border-line">
+          <div className="md:w-72">
+            <Input
+              icon={Search}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, ID, role, host…"
+              aria-label="Search people"
+            />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Segmented options={TYPE_OPTIONS} value={type} onChange={setType} />
+            <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-40" aria-label="Status">
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="revoked">Revoked</option>
+            </Select>
+            {hasFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setQuery("");
+                  setType("");
+                  setStatus("");
+                }}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          <p className="md:ml-auto text-xs text-subtle tabular-nums">
+            {data ? `${filtered.length} of ${people.length}` : ""}
+          </p>
+        </div>
+
+        {/* Table */}
+        {!data && loading ? (
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-11 w-full" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={hasFilters ? "No matches" : "No one registered yet"}
+            description={
+              hasFilters
+                ? "Try a different search or clear the filters."
+                : "Register staff and visitors to issue ID cards."
+            }
+            action={
+              !hasFilters && (
+                <ButtonLink to="/admin/register" variant="primary" icon={UserPlus}>
+                  Register person
+                </ButtonLink>
+              )
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13.5px]">
+              <thead>
+                <tr className="bg-surface-2 text-left text-xs text-muted">
+                  <th className="font-medium px-4 py-2.5">Name</th>
+                  <th className="font-medium px-4 py-2.5 hidden sm:table-cell">Type</th>
+                  <th className="font-medium px-4 py-2.5 hidden md:table-cell">Details</th>
+                  <th className="font-medium px-4 py-2.5">Status</th>
+                  <th className="font-medium px-4 py-2.5 hidden lg:table-cell">Registered</th>
+                  <th className="w-10" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {filtered.map((p) => (
+                  <tr
+                    key={p._id}
+                    onClick={() => setSelectedId(p._id)}
+                    onKeyDown={(e) => e.key === "Enter" && setSelectedId(p._id)}
+                    tabIndex={0}
+                    className="cursor-pointer hover:bg-surface-2/60 focus-visible:bg-surface-2 outline-none transition-colors group"
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3 min-w-[200px]">
+                        <Avatar person={p} size="sm" />
+                        <div className="min-w-0">
+                          <p className="font-medium text-fg truncate">{p.name}</p>
+                          <p className="text-xs text-subtle font-mono">{p.idNumber}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 hidden sm:table-cell">
+                      <TypeBadge type={p.type} />
+                    </td>
+                    <td className="px-4 py-2.5 text-muted hidden md:table-cell max-w-[260px] truncate">
+                      {p.type === "staff"
+                        ? [p.role, p.department].filter(Boolean).join(" · ") || "—"
+                        : [p.purpose, p.expectedDate && fmtCalendarDate(p.expectedDate)]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={p.status} />
+                    </td>
+                    <td className="px-4 py-2.5 text-muted hidden lg:table-cell tabular-nums">
+                      {fmtDate(p.createdAt)}
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <ChevronRight size={16} className="text-subtle group-hover:text-fg transition-colors" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {selected && (
+        <PersonDrawer
+          key={selected._id}
+          person={selected}
+          onClose={() => setSelectedId(null)}
+          onChanged={(updated) => setOverrides((o) => ({ ...o, [selected._id]: updated }))}
+        />
+      )}
+    </>
   );
 }

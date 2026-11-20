@@ -22,3 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Legacy photo uploads (photos now live in MongoDB)
+server/uploads/
+
+# Vercel
+.vercel

@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const LogSchema = new mongoose.Schema(
   {
@@ -6,11 +6,12 @@ const LogSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Person",
       required: true,
+      index: true,
     },
-    checkInTime: { type: Date, default: Date.now },
-    entryPoint: { type: String, default: "Main Gate", trim: true },
+    checkInTime: { type: Date, default: Date.now, index: true },
+    entryPoint: { type: String, default: "Main Gate", trim: true, maxlength: 80 },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("Log", LogSchema);
+export default mongoose.model("Log", LogSchema);
